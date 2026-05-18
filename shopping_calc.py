@@ -234,13 +234,13 @@ with tab2:
                 width="stretch",
                 column_config={
                     "削除": st.column_config.CheckboxColumn("", default=False, width="small"),
-                    "商品名": st.column_config.Column("商品名", width="medium"),
-                    "最安店舗": st.column_config.Column("最安店舗", width="medium"),
-                    "価格": st.column_config.Column("価格", width="small"),
-                    "内容量": st.column_config.Column("内容量", width="small"),
-                    "グラム/個単価": st.column_config.Column("単価", width="small"),
-                    "比較対象": st.column_config.Column("比較対象", width="large"),
-                    "登録日付": st.column_config.Column("登録日付", width="small")
+                    "商品名": st.column_config.Column("商品名", width="medium", disabled=True),
+                    "最安店舗": st.column_config.Column("最安店舗", width="medium", disabled=True),
+                    "価格": st.column_config.Column("価格", width="small", disabled=True),
+                    "内容量": st.column_config.Column("内容量", width="small", disabled=True),
+                    "グラム/個単価": st.column_config.Column("単価", width="small", disabled=True),
+                    "比較対象": st.column_config.Column("比較対象", width="large", disabled=True),
+                    "登録日付": st.column_config.Column("登録日付", width="small", disabled=True)
                 }
             )
             
