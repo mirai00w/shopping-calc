@@ -119,7 +119,7 @@ def login_ui():
                     response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
                     st.success("登録メールを送信しました！届いたメール内のリンクをクリックして認証を完了させてから、上のフォームよりログインしてください。")
                 except Exception as e:
-                    st.error("登録に失敗しました。有効なメールアドレスか確認してください。")
+                    st.error(f"登録に失敗しました。詳細エラー: {e}")
 
     with st.expander("❓ パスワードを忘れた場合はこちら"):
         reset_email = st.text_input("登録したメールアドレス", key="reset_email_input")
