@@ -226,6 +226,9 @@ with tab2:
             df_display["内容量"] = df_display["内容量"].apply(lambda x: f"{x:,}")
             df_display["グラム/個単価"] = df_display["グラム/個単価"].apply(lambda x: f"{x:.2f}円")
             
+            # ID列を保持（表示用には使わないが、削除処理で必要）
+            df_display_with_id = df_display.copy()
+            
             cols_to_show = ["削除", "商品名", "最安店舗", "価格", "内容量", "グラム/個単価", "比較対象", "登録日付"]
             
             edited_df = st.data_editor(
@@ -248,7 +251,8 @@ with tab2:
                 drop_indices = edited_df[edited_df["削除"] == True].index.tolist()
                 
                 if drop_indices:
-                    ids_to_delete = [filtered_list[i]["id"] for i in drop_indices if "id" in filtered_list[i]]
+                    # df_display_with_id から正確な ID を取得
+                    ids_to_delete = [df_display_with_id.iloc[i]["id"] for i in drop_indices if i < len(df_display_with_id)]
                     
                     new_history = [r for r in history_list if r.get("id") not in ids_to_delete]
                     localS.setItem("shopping_history", json.dumps(new_history))
