@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
-import json
 import uuid
 from datetime import datetime
-from streamlit_local_storage import LocalStorage
-from supabase import create_client, Client # 追加：Supabaseライブラリ
+from supabase import create_client, Client
 
 # --- ページ設定 ---
 st.set_page_config(page_title="価格比較ツール", layout="centered")
@@ -14,32 +12,27 @@ st.set_page_config(page_title="価格比較ツール", layout="centered")
 # ==========================================
 st.markdown("""
 <style>
-/* タブのベースデザイン（丸みを持たせて独立したボタンのようにする） */
 .stTabs [data-baseweb="tab-list"] {
     gap: 8px;
     background-color: transparent;
 }
 .stTabs [data-baseweb="tab"] {
-    background-color: #EDE9DF; /* 非選択時は薄いベージュ */
+    background-color: #EDE9DF;
     border-radius: 8px 8px 0 0;
     padding: 10px 20px;
-    color: #698474; /* 文字色はグリーン */
+    color: #698474;
     font-weight: bold;
 }
-/* 選択されているタブのデザイン（背景をグリーン、文字を白に） */
 .stTabs [aria-selected="true"] {
     background-color: #698474 !important;
     color: #FFFFFF !important;
 }
-
-/* ボタンのデザイン（少し丸みを持たせ、押したくなる立体感を出す） */
 .stButton>button {
     border-radius: 8px;
     border: none;
     box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     transition: all 0.2s ease;
 }
-/* ボタンに触れたとき（ホバー時）に少し浮き上がるエフェクト */
 .stButton>button:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -48,9 +41,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 🔐 Supabase 認証ロジック（ここを追加しました！）
+# 🔐 Supabase 認証ロジック
 # ==========================================
-# Supabaseへの接続設定
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
@@ -63,11 +55,9 @@ except Exception as e:
     st.error("Supabaseの接続設定が見つかりません。secrets.tomlを確認してください。")
     st.stop()
 
-# セッションにユーザー情報を保持する枠を作る
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ログイン画面を作る関数
 def login_ui():
     st.title("🔒 ログイン")
     st.markdown("自分専用の価格比較ツールにアクセスするため、ログインしてください。")
@@ -81,38 +71,34 @@ def login_ui():
         with col2:
             submit_signup = st.form_submit_button("新規登録", use_container_width=True)
 
-    # 新規登録ボタンが押された時の処理
     if submit_signup:
         if not email or not password:
             st.warning("メールアドレスとパスワードを入力してください")
         else:
             try:
-                # Supabaseにユーザーを作成
                 response = supabase.auth.sign_up({"email": email, "password": password})
                 st.success("登録が完了しました！そのまま「ログイン」ボタンを押して開始してください。")
             except Exception as e:
                 st.error("登録に失敗しました。パスワードは6文字以上で設定してください。")
 
-    # ログインボタンが押された時の処理
     if submit_login:
         if not email or not password:
             st.warning("メールアドレスとパスワードを入力してください")
         else:
             try:
-                # Supabaseでログイン確認
                 response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = response.user
-                st.rerun() # 画面をリロードしてメイン画面へ進む
+                st.rerun()
             except Exception as e:
                 st.error("ログイン失敗：メールアドレスかパスワードが間違っています。")
 
-# ⚠️ ログインしていない場合はここで処理をストップし、これより下（メイン機能）を隠す
+# ログインしていない場合はストップ
 if st.session_state.user is None:
     login_ui()
     st.stop()
 
 # ==========================================
-# 👤 ログイン中のヘッダー（ログアウト機能）
+# 👤 ログイン中のヘッダー
 # ==========================================
 col_user, col_logout = st.columns([4, 1])
 with col_user:
@@ -124,10 +110,37 @@ with col_logout:
         st.rerun()
 
 # ==========================================
-# これ以降は既存のメイン機能
+# ☁️ クラウド連携用関数（新規追加！）
 # ==========================================
-localS = LocalStorage()
+def load_from_cloud():
+    try:
+        # ログイン中のユーザーのデータをSupabaseから取得
+        response = supabase.table("user_data").select("history_list").eq("user_id", st.session_state.user.id).execute()
+        if len(response.data) > 0:
+            raw_list = response.data[0]["history_list"]
+            # 互換性のためIDがないデータには自動付与
+            for item in raw_list:
+                if "id" not in item:
+                    item["id"] = str(uuid.uuid4())
+            return raw_list
+        return []
+    except Exception as e:
+        st.error("クラウドデータの読み込みに失敗しました")
+        return []
 
+def save_to_cloud(history_list):
+    try:
+        # ログイン中のユーザーのデータをSupabaseに上書き保存（なければ新規作成）
+        supabase.table("user_data").upsert({
+            "user_id": st.session_state.user.id,
+            "history_list": history_list
+        }).execute()
+    except Exception as e:
+        st.error("クラウドデータへの保存に失敗しました")
+
+# ==========================================
+# メイン機能
+# ==========================================
 if "store_count" not in st.session_state:
     st.session_state.store_count = 2
 
@@ -145,21 +158,10 @@ for i in range(10):
     if f"price_{i}" not in st.session_state: st.session_state[f"price_{i}"] = None
     if f"amount_{i}" not in st.session_state: st.session_state[f"amount_{i}"] = None
 
-history_str = localS.getItem("shopping_history")
-
+# 🌟 起動時に「クラウド」からデータを読み込む
 if "history_loaded" not in st.session_state:
-    if history_str is not None:
-        try:
-            raw_list = json.loads(history_str) if history_str != "null" else []
-            for item in raw_list:
-                if "id" not in item:
-                    item["id"] = str(uuid.uuid4())
-            st.session_state.history_list = raw_list
-        except:
-            st.session_state.history_list = []
-        st.session_state.history_loaded = True
-    else:
-        st.session_state.history_list = []
+    st.session_state.history_list = load_from_cloud()
+    st.session_state.history_loaded = True
 
 def load_target_to_compare(target):
     st.session_state.edit_item_name = target.get("商品名", "")
@@ -409,6 +411,7 @@ with tab3:
     else:
         st.caption("元値と割引額を入力すると計算結果が表示されます")
 
+# 🌟 データの変更があった場合のみ「クラウド」へ保存する
 if st.session_state.get("history_changed", False):
-    localS.setItem("shopping_history", json.dumps(st.session_state.history_list))
+    save_to_cloud(st.session_state.history_list)
     st.session_state.history_changed = False
