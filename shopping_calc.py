@@ -4,12 +4,13 @@ import json
 import uuid
 from datetime import datetime
 from streamlit_local_storage import LocalStorage
+from supabase import create_client, Client # 追加：Supabaseライブラリ
 
 # --- ページ設定 ---
 st.set_page_config(page_title="価格比較ツール", layout="centered")
 
 # ==========================================
-# 🎨 デザインカスタマイズ用CSS（ここだけ追加しました！）
+# 🎨 デザインカスタマイズ用CSS
 # ==========================================
 st.markdown("""
 <style>
@@ -45,11 +46,88 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-# ==========================================
 
+# ==========================================
+# 🔐 Supabase 認証ロジック（ここを追加しました！）
+# ==========================================
+# Supabaseへの接続設定
+@st.cache_resource
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+try:
+    supabase = init_supabase()
+except Exception as e:
+    st.error("Supabaseの接続設定が見つかりません。secrets.tomlを確認してください。")
+    st.stop()
+
+# セッションにユーザー情報を保持する枠を作る
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+# ログイン画面を作る関数
+def login_ui():
+    st.title("🔒 ログイン")
+    st.markdown("自分専用の価格比較ツールにアクセスするため、ログインしてください。")
+
+    with st.form("login_form"):
+        email = st.text_input("メールアドレス")
+        password = st.text_input("パスワード", type="password")
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_login = st.form_submit_button("ログイン", use_container_width=True)
+        with col2:
+            submit_signup = st.form_submit_button("新規登録", use_container_width=True)
+
+    # 新規登録ボタンが押された時の処理
+    if submit_signup:
+        if not email or not password:
+            st.warning("メールアドレスとパスワードを入力してください")
+        else:
+            try:
+                # Supabaseにユーザーを作成
+                response = supabase.auth.sign_up({"email": email, "password": password})
+                st.success("登録が完了しました！そのまま「ログイン」ボタンを押して開始してください。")
+            except Exception as e:
+                st.error("登録に失敗しました。パスワードは6文字以上で設定してください。")
+
+    # ログインボタンが押された時の処理
+    if submit_login:
+        if not email or not password:
+            st.warning("メールアドレスとパスワードを入力してください")
+        else:
+            try:
+                # Supabaseでログイン確認
+                response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state.user = response.user
+                st.rerun() # 画面をリロードしてメイン画面へ進む
+            except Exception as e:
+                st.error("ログイン失敗：メールアドレスかパスワードが間違っています。")
+
+# ⚠️ ログインしていない場合はここで処理をストップし、これより下（メイン機能）を隠す
+if st.session_state.user is None:
+    login_ui()
+    st.stop()
+
+# ==========================================
+# 👤 ログイン中のヘッダー（ログアウト機能）
+# ==========================================
+col_user, col_logout = st.columns([4, 1])
+with col_user:
+    st.caption(f"ログイン中: {st.session_state.user.email}")
+with col_logout:
+    if st.button("ログアウト"):
+        supabase.auth.sign_out()
+        st.session_state.user = None
+        st.rerun()
+
+# ==========================================
+# これ以降は既存のメイン機能
+# ==========================================
 localS = LocalStorage()
 
-# --- セッションステートの初期化 ---
 if "store_count" not in st.session_state:
     st.session_state.store_count = 2
 
@@ -67,7 +145,6 @@ for i in range(10):
     if f"price_{i}" not in st.session_state: st.session_state[f"price_{i}"] = None
     if f"amount_{i}" not in st.session_state: st.session_state[f"amount_{i}"] = None
 
-# --- データ読み込み（IDがない古いデータに自動でIDを付与する互換処理） ---
 history_str = localS.getItem("shopping_history")
 
 if "history_loaded" not in st.session_state:
@@ -84,7 +161,6 @@ if "history_loaded" not in st.session_state:
     else:
         st.session_state.history_list = []
 
-# --- コールバック関数（履歴からの復元処理） ---
 def load_target_to_compare(target):
     st.session_state.edit_item_name = target.get("商品名", "")
     saved_stores = target.get("raw_stores", [])
@@ -112,9 +188,6 @@ st.title("価格比較ツール")
 
 tab1, tab2, tab3 = st.tabs(["比較", "履歴", "割引"])
 
-# ==========================================
-# タブ1：比較
-# ==========================================
 with tab1:
     st.text_input("商品名", key="edit_item_name", placeholder="例: 鶏胸肉、オムツなど")
     st.markdown("---")
@@ -224,9 +297,6 @@ with tab1:
     elif len(valid_stores) == 1:
         st.warning("比較するため、もう1店舗入力してください")
 
-# ==========================================
-# タブ2：履歴
-# ==========================================
 with tab2:
     if st.session_state.history_list:
         col_s1, col_s2 = st.columns([4, 1])
@@ -317,9 +387,6 @@ with tab2:
     else:
         st.info("データがありません")
 
-# ==========================================
-# タブ3：割引
-# ==========================================
 with tab3:
     base_price = st.number_input("元値(円)", min_value=0, value=None, placeholder="例: 3980", step=100)
     discount_type = st.radio("割引種別", ["%OFF", "円引き"], horizontal=True)
@@ -342,20 +409,6 @@ with tab3:
     else:
         st.caption("元値と割引額を入力すると計算結果が表示されます")
 
-# ==========================================
-# 💰 収益化（マネタイズ）エリア（※現在コメントアウト中）
-# ==========================================
-# st.markdown("<br><br>", unsafe_allow_html=True)
-# with st.expander("🌟 お得なネット通販情報＆開発者支援", expanded=False):
-#     st.markdown("日用品のまとめ買いはこちらから！")
-#     st.markdown("🛒 [Amazon タイムセール会場](https://amzn.to/XXXXXX)")
-#     st.markdown("🛍️ [楽天市場 24時間限定タイムセール](https://a.r10.to/XXXXXX)")
-#     
-#     st.markdown("---")
-#     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
-#     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
-
-# --- ブラウザへのデータ保存を最後に行う ---
 if st.session_state.get("history_changed", False):
     localS.setItem("shopping_history", json.dumps(st.session_state.history_list))
     st.session_state.history_changed = False
