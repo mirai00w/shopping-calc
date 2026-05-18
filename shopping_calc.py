@@ -16,6 +16,10 @@ if "store_count" not in st.session_state:
 if "edit_item_name" not in st.session_state:
     st.session_state.edit_item_name = ""
 
+# 検索ボタン用の状態保存
+if "search_word" not in st.session_state:
+    st.session_state.search_word = ""
+
 for i in range(10): 
     if f"name_{i}" not in st.session_state: st.session_state[f"name_{i}"] = ""
     if f"price_{i}" not in st.session_state: st.session_state[f"price_{i}"] = None
@@ -166,26 +170,41 @@ with tab1:
 # ==========================================
 with tab2:
     if history_list:
-        search_q = st.text_input("商品名や店舗名で検索")
+        # --- 変更点：検索ボタンの配置 ---
+        col_s1, col_s2 = st.columns([4, 1])
+        with col_s1:
+            # 入力された文字を一時的に受け取る（ボタンを押すまで反映させない）
+            temp_search = st.text_input("商品名や店舗名で検索", value=st.session_state.search_word)
+        with col_s2:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("検索", use_container_width=True):
+                st.session_state.search_word = temp_search
+                st.rerun()
         
         filtered_list = []
         for r in history_list:
-            if search_q.lower() in r.get("商品名", "").lower() or search_q.lower() in r.get("最安店舗", "").lower() or search_q.lower() in r.get("比較対象", "").lower():
+            if st.session_state.search_word.lower() in r.get("商品名", "").lower() or st.session_state.search_word.lower() in r.get("最安店舗", "").lower() or st.session_state.search_word.lower() in r.get("比較対象", "").lower():
                 filtered_list.append(r)
                 
         if not filtered_list:
             st.info("該当する履歴がありません。")
         else:
             st.markdown("#### 履歴から再比較")
-            load_options = {"(選択なし)": None}
-            for r in filtered_list:
-                label = f"{r['日付']} - {r['商品名']} ({r['最安店舗']}が最安)"
-                load_options[label] = r
-                
-            selected_label = st.selectbox("再比較したい履歴を選んでください", list(load_options.keys()))
             
-            if selected_label != "(選択なし)":
-                target = load_options[selected_label]
+            # --- 変更点：コンボボックスをIDで管理し、表示は「商品名 (店舗名)」のみにする ---
+            load_options = ["(選択なし)"] + [r['id'] for r in filtered_list]
+            
+            def format_label(x):
+                if x == "(選択なし)": return x
+                target = next((item for item in filtered_list if item['id'] == x), None)
+                if target:
+                    return f"{target['商品名']} ({target['最安店舗']}が最安)"
+                return ""
+                
+            selected_id = st.selectbox("再比較したい履歴を選んでください", load_options, format_func=format_label)
+            
+            if selected_id != "(選択なし)":
+                target = next(item for item in filtered_list if item['id'] == selected_id)
                 if st.button("この履歴を「比較」タブにセットする", on_click=load_target_to_compare, args=(target,)):
                     st.toast("セットしました！「比較」タブを開いてください", icon="✅")
 
@@ -209,7 +228,6 @@ with tab2:
             
             cols_to_show = ["削除", "商品名", "最安店舗", "価格", "内容量", "グラム/個単価", "比較対象", "登録日付"]
             
-            # --- 警告解消：use_container_width を width="stretch" に変更 ---
             edited_df = st.data_editor(
                 df_display[cols_to_show],
                 hide_index=True,
