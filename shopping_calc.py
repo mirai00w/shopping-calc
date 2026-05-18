@@ -41,6 +41,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
+# 📱 スマホアプリ化（PWA全画面表示）用ハック
+# ==========================================
+st.markdown("""
+<script>
+    const head = document.getElementsByTagName('head')[0];
+    
+    const metaApple = document.createElement('meta');
+    metaApple.name = 'apple-mobile-web-app-capable';
+    metaApple.content = 'yes';
+    head.appendChild(metaApple);
+
+    const metaAndroid = document.createElement('meta');
+    metaAndroid.name = 'mobile-web-app-capable';
+    metaAndroid.content = 'yes';
+    head.appendChild(metaAndroid);
+
+    const metaStatus = document.createElement('meta');
+    metaStatus.name = 'apple-mobile-web-app-status-bar-style';
+    metaStatus.content = 'default';
+    head.appendChild(metaStatus);
+</script>
+""", unsafe_allow_html=True)
+
+# ==========================================
 # 🔐 Supabase 認証ロジック
 # ==========================================
 @st.cache_resource
@@ -65,21 +89,7 @@ def login_ui():
     with st.form("login_form"):
         email = st.text_input("メールアドレス")
         password = st.text_input("パスワード", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            submit_login = st.form_submit_button("ログイン", use_container_width=True)
-        with col2:
-            submit_signup = st.form_submit_button("新規登録", use_container_width=True)
-
-    if submit_signup:
-        if not email or not password:
-            st.warning("メールアドレスとパスワードを入力してください")
-        else:
-            try:
-                response = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("登録メールを送信しました！メール内のリンクをクリックして認証を完了してからログインしてください。")
-            except Exception as e:
-                st.error("登録に失敗しました。パスワードは6文字以上で設定してください。")
+        submit_login = st.form_submit_button("ログイン", use_container_width=True)
 
     if submit_login:
         if not email or not password:
@@ -92,11 +102,28 @@ def login_ui():
             except Exception as e:
                 st.error("ログイン失敗：メールアドレスかパスワードが間違っているか、メール認証が未完了です。")
 
-    # 🔑 パスワードリセット機能の追加
-    st.markdown("---")
-    with st.expander("パスワードを忘れた場合はこちら"):
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("📝 新規登録の方はこちら"):
+        with st.form("signup_form"):
+            signup_email = st.text_input("登録するメールアドレス")
+            signup_password = st.text_input("設定するパスワード（6文字以上）", type="password")
+            submit_signup = st.form_submit_button("認証メールを送信して登録", use_container_width=True)
+
+        if submit_signup:
+            if not signup_email or not signup_password:
+                st.warning("メールアドレスとパスワードを入力してください")
+            elif len(signup_password) < 6:
+                st.warning("パスワードは6文字以上で入力してください")
+            else:
+                try:
+                    response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
+                    st.success("登録メールを送信しました！届いたメール内のリンクをクリックして認証を完了させてから、上のフォームよりログインしてください。")
+                except Exception as e:
+                    st.error("登録に失敗しました。有効なメールアドレスか確認してください。")
+
+    with st.expander("❓ パスワードを忘れた場合はこちら"):
         reset_email = st.text_input("登録したメールアドレス", key="reset_email_input")
-        if st.button("パスワード再設定メールを送信"):
+        if st.button("パスワード再設定メールを送信", use_container_width=True):
             if reset_email:
                 try:
                     supabase.auth.reset_password_email(reset_email)
@@ -106,7 +133,6 @@ def login_ui():
             else:
                 st.warning("メールアドレスを入力してください。")
 
-# ログインしていない場合はストップ
 if st.session_state.user is None:
     login_ui()
     st.stop()
@@ -434,7 +460,6 @@ with tab3:
 #     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
 #     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
 
-# 🌟 データの変更があった場合のみ「クラウド」へ保存する
 if st.session_state.get("history_changed", False):
     save_to_cloud(st.session_state.history_list)
     st.session_state.history_changed = False
