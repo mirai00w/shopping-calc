@@ -7,6 +7,46 @@ from streamlit_local_storage import LocalStorage
 
 # --- ページ設定 ---
 st.set_page_config(page_title="価格比較ツール", layout="centered")
+
+# ==========================================
+# 🎨 デザインカスタマイズ用CSS（ここだけ追加しました！）
+# ==========================================
+st.markdown("""
+<style>
+/* タブのベースデザイン（丸みを持たせて独立したボタンのようにする） */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background-color: transparent;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: #EDE9DF; /* 非選択時は薄いベージュ */
+    border-radius: 8px 8px 0 0;
+    padding: 10px 20px;
+    color: #698474; /* 文字色はグリーン */
+    font-weight: bold;
+}
+/* 選択されているタブのデザイン（背景をグリーン、文字を白に） */
+.stTabs [aria-selected="true"] {
+    background-color: #698474 !important;
+    color: #FFFFFF !important;
+}
+
+/* ボタンのデザイン（少し丸みを持たせ、押したくなる立体感を出す） */
+.stButton>button {
+    border-radius: 8px;
+    border: none;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    transition: all 0.2s ease;
+}
+/* ボタンに触れたとき（ホバー時）に少し浮き上がるエフェクト */
+.stButton>button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+</style>
+""", unsafe_allow_html=True)
+# ==========================================
+
 localS = LocalStorage()
 
 # --- セッションステートの初期化 ---
@@ -16,14 +56,33 @@ if "store_count" not in st.session_state:
 if "edit_item_name" not in st.session_state:
     st.session_state.edit_item_name = ""
 
-# 検索ボタン用の状態保存
 if "search_word" not in st.session_state:
     st.session_state.search_word = ""
+
+if "history_changed" not in st.session_state:
+    st.session_state.history_changed = False
 
 for i in range(10): 
     if f"name_{i}" not in st.session_state: st.session_state[f"name_{i}"] = ""
     if f"price_{i}" not in st.session_state: st.session_state[f"price_{i}"] = None
     if f"amount_{i}" not in st.session_state: st.session_state[f"amount_{i}"] = None
+
+# --- データ読み込み（IDがない古いデータに自動でIDを付与する互換処理） ---
+history_str = localS.getItem("shopping_history")
+
+if "history_loaded" not in st.session_state:
+    if history_str is not None:
+        try:
+            raw_list = json.loads(history_str) if history_str != "null" else []
+            for item in raw_list:
+                if "id" not in item:
+                    item["id"] = str(uuid.uuid4())
+            st.session_state.history_list = raw_list
+        except:
+            st.session_state.history_list = []
+        st.session_state.history_loaded = True
+    else:
+        st.session_state.history_list = []
 
 # --- コールバック関数（履歴からの復元処理） ---
 def load_target_to_compare(target):
@@ -42,15 +101,12 @@ def load_target_to_compare(target):
             st.session_state[f"price_{idx}"] = s_data.get("price", None)
             st.session_state[f"amount_{idx}"] = s_data.get("amount", None)
 
-# --- データ読み込み ---
-history_str = localS.getItem("shopping_history")
-if history_str and history_str != "null":
-    try:
-        history_list = json.loads(history_str)
-    except:
-        history_list = []
-else:
-    history_list = []
+def clear_all_inputs():
+    st.session_state.edit_item_name = ""
+    for idx in range(10):
+        st.session_state[f"name_{idx}"] = ""
+        st.session_state[f"price_{idx}"] = None
+        st.session_state[f"amount_{idx}"] = None
 
 st.title("価格比較ツール")
 
@@ -63,7 +119,7 @@ with tab1:
     st.text_input("商品名", key="edit_item_name", placeholder="例: 鶏胸肉、オムツなど")
     st.markdown("---")
     
-    col_add, col_sub, _ = st.columns([2, 2, 3])
+    col_add, col_sub, col_clr = st.columns([2.5, 2.5, 3])
     with col_add:
         if st.button("＋ 店舗を追加"):
             if st.session_state.store_count < 10:
@@ -78,6 +134,9 @@ with tab1:
                 st.rerun()
             else:
                 st.warning("最低2店舗は必要です")
+    with col_clr:
+        if st.button("クリア", use_container_width=True, on_click=clear_all_inputs):
+            st.toast("入力をクリアしました", icon="🧹")
 
     valid_stores = []
     
@@ -159,8 +218,8 @@ with tab1:
                     "比較対象": compared_str,
                     "raw_stores": store_data_to_save
                 }
-                history_list.insert(0, new_record)
-                localS.setItem("shopping_history", json.dumps(history_list))
+                st.session_state.history_list.insert(0, new_record)
+                st.session_state.history_changed = True
                 st.toast("保存しました！", icon="💾")
     elif len(valid_stores) == 1:
         st.warning("比較するため、もう1店舗入力してください")
@@ -169,11 +228,9 @@ with tab1:
 # タブ2：履歴
 # ==========================================
 with tab2:
-    if history_list:
-        # --- 変更点：検索ボタンの配置 ---
+    if st.session_state.history_list:
         col_s1, col_s2 = st.columns([4, 1])
         with col_s1:
-            # 入力された文字を一時的に受け取る（ボタンを押すまで反映させない）
             temp_search = st.text_input("商品名や店舗名で検索", value=st.session_state.search_word)
         with col_s2:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
@@ -182,7 +239,7 @@ with tab2:
                 st.rerun()
         
         filtered_list = []
-        for r in history_list:
+        for r in st.session_state.history_list:
             if st.session_state.search_word.lower() in r.get("商品名", "").lower() or st.session_state.search_word.lower() in r.get("最安店舗", "").lower() or st.session_state.search_word.lower() in r.get("比較対象", "").lower():
                 filtered_list.append(r)
                 
@@ -191,12 +248,11 @@ with tab2:
         else:
             st.markdown("#### 履歴から再比較")
             
-            # --- 変更点：コンボボックスをIDで管理し、表示は「商品名 (店舗名)」のみにする ---
-            load_options = ["(選択なし)"] + [r['id'] for r in filtered_list]
+            load_options = ["(選択なし)"] + [r.get('id') for r in filtered_list]
             
             def format_label(x):
                 if x == "(選択なし)": return x
-                target = next((item for item in filtered_list if item['id'] == x), None)
+                target = next((item for item in filtered_list if item.get('id') == x), None)
                 if target:
                     return f"{target['商品名']} ({target['最安店舗']}が最安)"
                 return ""
@@ -204,7 +260,7 @@ with tab2:
             selected_id = st.selectbox("再比較したい履歴を選んでください", load_options, format_func=format_label)
             
             if selected_id != "(選択なし)":
-                target = next(item for item in filtered_list if item['id'] == selected_id)
+                target = next(item for item in filtered_list if item.get('id') == selected_id)
                 if st.button("この履歴を「比較」タブにセットする", on_click=load_target_to_compare, args=(target,)):
                     st.toast("セットしました！「比較」タブを開いてください", icon="✅")
 
@@ -226,7 +282,6 @@ with tab2:
             df_display["内容量"] = df_display["内容量"].apply(lambda x: f"{x:,}")
             df_display["グラム/個単価"] = df_display["グラム/個単価"].apply(lambda x: f"{x:.2f}円")
             
-            # ID列を保持（表示用には使わないが、削除処理で必要）
             df_display_with_id = df_display.copy()
             
             cols_to_show = ["削除", "商品名", "最安店舗", "価格", "内容量", "グラム/個単価", "比較対象", "登録日付"]
@@ -251,11 +306,11 @@ with tab2:
                 drop_indices = edited_df[edited_df["削除"] == True].index.tolist()
                 
                 if drop_indices:
-                    # df_display_with_id から正確な ID を取得
-                    ids_to_delete = [df_display_with_id.iloc[i]["id"] for i in drop_indices if i < len(df_display_with_id)]
+                    ids_to_delete = [df_display_with_id.iloc[i].get("id") for i in drop_indices if i < len(df_display_with_id)]
                     
-                    new_history = [r for r in history_list if r.get("id") not in ids_to_delete]
-                    localS.setItem("shopping_history", json.dumps(new_history))
+                    new_history = [r for r in st.session_state.history_list if r.get("id") not in ids_to_delete]
+                    st.session_state.history_list = new_history
+                    st.session_state.history_changed = True
                     st.rerun()
                 else:
                     st.warning("削除する履歴にチェックを入れてください")
@@ -286,3 +341,21 @@ with tab3:
         st.metric(label="計算結果", value=f"{int(final_price):,} 円")
     else:
         st.caption("元値と割引額を入力すると計算結果が表示されます")
+
+# ==========================================
+# 💰 収益化（マネタイズ）エリア（※現在コメントアウト中）
+# ==========================================
+# st.markdown("<br><br>", unsafe_allow_html=True)
+# with st.expander("🌟 お得なネット通販情報＆開発者支援", expanded=False):
+#     st.markdown("日用品のまとめ買いはこちらから！")
+#     st.markdown("🛒 [Amazon タイムセール会場](https://amzn.to/XXXXXX)")
+#     st.markdown("🛍️ [楽天市場 24時間限定タイムセール](https://a.r10.to/XXXXXX)")
+#     
+#     st.markdown("---")
+#     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
+#     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
+
+# --- ブラウザへのデータ保存を最後に行う ---
+if st.session_state.get("history_changed", False):
+    localS.setItem("shopping_history", json.dumps(st.session_state.history_list))
+    st.session_state.history_changed = False
