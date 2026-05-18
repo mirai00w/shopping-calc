@@ -77,7 +77,7 @@ def login_ui():
         else:
             try:
                 response = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("登録が完了しました！そのまま「ログイン」ボタンを押して開始してください。")
+                st.success("登録メールを送信しました！メール内のリンクをクリックして認証を完了してからログインしてください。")
             except Exception as e:
                 st.error("登録に失敗しました。パスワードは6文字以上で設定してください。")
 
@@ -90,7 +90,21 @@ def login_ui():
                 st.session_state.user = response.user
                 st.rerun()
             except Exception as e:
-                st.error("ログイン失敗：メールアドレスかパスワードが間違っています。")
+                st.error("ログイン失敗：メールアドレスかパスワードが間違っているか、メール認証が未完了です。")
+
+    # 🔑 パスワードリセット機能の追加
+    st.markdown("---")
+    with st.expander("パスワードを忘れた場合はこちら"):
+        reset_email = st.text_input("登録したメールアドレス", key="reset_email_input")
+        if st.button("パスワード再設定メールを送信"):
+            if reset_email:
+                try:
+                    supabase.auth.reset_password_email(reset_email)
+                    st.success("再設定用のメールを送信しました。メールの案内に従ってパスワードを変更してください。")
+                except Exception as e:
+                    st.error("メールの送信に失敗しました。アドレスを確認してください。")
+            else:
+                st.warning("メールアドレスを入力してください。")
 
 # ログインしていない場合はストップ
 if st.session_state.user is None:
@@ -110,15 +124,13 @@ with col_logout:
         st.rerun()
 
 # ==========================================
-# ☁️ クラウド連携用関数（新規追加！）
+# ☁️ クラウド連携用関数
 # ==========================================
 def load_from_cloud():
     try:
-        # ログイン中のユーザーのデータをSupabaseから取得
         response = supabase.table("user_data").select("history_list").eq("user_id", st.session_state.user.id).execute()
         if len(response.data) > 0:
             raw_list = response.data[0]["history_list"]
-            # 互換性のためIDがないデータには自動付与
             for item in raw_list:
                 if "id" not in item:
                     item["id"] = str(uuid.uuid4())
@@ -130,7 +142,6 @@ def load_from_cloud():
 
 def save_to_cloud(history_list):
     try:
-        # ログイン中のユーザーのデータをSupabaseに上書き保存（なければ新規作成）
         supabase.table("user_data").upsert({
             "user_id": st.session_state.user.id,
             "history_list": history_list
@@ -158,7 +169,6 @@ for i in range(10):
     if f"price_{i}" not in st.session_state: st.session_state[f"price_{i}"] = None
     if f"amount_{i}" not in st.session_state: st.session_state[f"amount_{i}"] = None
 
-# 🌟 起動時に「クラウド」からデータを読み込む
 if "history_loaded" not in st.session_state:
     st.session_state.history_list = load_from_cloud()
     st.session_state.history_loaded = True
@@ -410,6 +420,19 @@ with tab3:
         st.metric(label="計算結果", value=f"{int(final_price):,} 円")
     else:
         st.caption("元値と割引額を入力すると計算結果が表示されます")
+
+# ==========================================
+# 💰 収益化（マネタイズ）エリア（※現在コメントアウト中）
+# ==========================================
+# st.markdown("<br><br>", unsafe_allow_html=True)
+# with st.expander("🌟 お得なネット通販情報＆開発者支援", expanded=False):
+#     st.markdown("日用品のまとめ買いはこちらから！")
+#     st.markdown("🛒 [Amazon タイムセール会場](https://amzn.to/XXXXXX)")
+#     st.markdown("🛍️ [楽天市場 24時間限定タイムセール](https://a.r10.to/XXXXXX)")
+#     
+#     st.markdown("---")
+#     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
+#     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
 
 # 🌟 データの変更があった場合のみ「クラウド」へ保存する
 if st.session_state.get("history_changed", False):
