@@ -1,7 +1,7 @@
 import streamlit as st  # Streamlitライブラリをインポート（Web画面を構築するため）
 import pandas as pd  # Pandasライブラリをインポート（履歴データを表形式で管理・表示するため）
 import uuid  # UUIDライブラリをインポート（データの一意なIDを自動生成するため）
-import time  # 時間待機ライブラリ（ログアウト時の通信待機に使用）
+import time  # 時間待機ライブラリ（クッキー通信のラグを吸収するために使用）
 from datetime import datetime  # 日時ライブラリをインポート（履歴の登録日時を取得するため）
 from supabase import create_client, Client  # Supabase接続用の関数と型定義をインポート
 from streamlit_cookies_controller import CookieController  # クッキー操作用ライブラリ
@@ -14,14 +14,16 @@ st.set_page_config(page_title="価格比較ツール", layout="centered")
 # ==========================================
 controller = CookieController()  # ブラウザのクッキーを読み書きするコントローラー
 
-if "auth_attempted" not in st.session_state:
-    st.session_state.auth_attempted = False
+# 【最強のハック】初回ロード時の「クッキー空振り」を防ぐための0.5秒待機＆リロード処理
+if "init_run" not in st.session_state:
+    st.session_state.init_run = True
+    time.sleep(0.5)  # ブラウザ側のJSが実行され、クッキーがPython側に届くのを待つ
+    st.rerun()       # クッキーが届いた状態で、スクリプトを最初からやり直す！
 
-# まだログインしておらず、かつ自動ログインをまだ試みていない場合に実行
-if st.session_state.get("user") is None and not st.session_state.auth_attempted:
-    cookies = controller.getAll()  # 保存されているクッキーを取得
-    access_token = cookies.get("sb_access_token")
-    refresh_token = cookies.get("sb_refresh_token")
+# 確実にクッキーが読み込める状態になった後で、自動ログインを試みる
+if st.session_state.get("user") is None:
+    access_token = controller.get("sb_access_token")
+    refresh_token = controller.get("sb_refresh_token")
     
     if access_token and refresh_token:
         try:
@@ -30,7 +32,6 @@ if st.session_state.get("user") is None and not st.session_state.auth_attempted:
             st.session_state.user = response.user
         except Exception:
             pass
-    st.session_state.auth_attempted = True
 
 # ==========================================
 # 🛡️ 法的規約エリア（サイドバーに格納）
@@ -191,13 +192,16 @@ def login_ui():
             try:
                 response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 
-                # ★修正：クッキーに「30日間（2592000秒）」の有効期限を持たせて保存
+                # ログイン成功時、クッキーに「30日間」の寿命を持たせて保存する
                 if response.session:
                     controller.set("sb_access_token", response.session.access_token, max_age=2592000)
                     controller.set("sb_refresh_token", response.session.refresh_token, max_age=2592000)
                 
                 st.session_state.user = response.user
-                # ★修正：ここでは st.rerun() を呼ばず、スクリプトを自然に進行させる
+                
+                # 保存指示がブラウザに届くまで0.5秒待機してからリロードし、メイン画面へ移行する
+                time.sleep(0.5)
+                st.rerun()
                 
             except Exception as e:
                 st.error("ログイン失敗：メールアドレスかパスワードが間違っているか、メール認証が未完了です。")
@@ -234,22 +238,16 @@ def login_ui():
                 st.warning("メールアドレスを入力してください。")
 
 # ==========================================
-# 🎁 空箱（st.empty）を使ったログイン画面の完全分離
+# 🎁 ログイン画面の分離（未ログイン時のみ表示してストップ）
 # ==========================================
-login_placeholder = st.empty()  # 画面上に「見えない空箱」を用意する
+login_placeholder = st.empty()  # 画面を切り替えるための空箱を用意
 
 if st.session_state.user is None:
-    # ユーザーが未ログインの場合、この空箱の中にログイン画面を描画する
     with login_placeholder.container():
         login_ui()
+    st.stop()  # ログインが完了するまで、ここで処理を完全に止める
 
-# ログイン処理が失敗した（またはまだ入力していない）場合は、ここで処理を完全にストップする
-# （※このストップにより、未ログイン時に下の「価格比較ツール」が見えることは絶対にありません）
-if st.session_state.user is None:
-    st.stop()
-
-# もしログイン処理が成功して st.session_state.user に情報が入ったら、st.stop()をすり抜けてここに来る
-# その瞬間、先ほどまでログイン画面が入っていた「空箱」を完全に消去する（画面がスッと切り替わる！）
+# ログインが完了していれば、この行に到達し、ログイン画面の入った箱を消去する
 login_placeholder.empty()
 
 # ==========================================
@@ -262,12 +260,13 @@ with col_logout:
     if st.button("ログアウト"):
         supabase.auth.sign_out()
         
-        # クッキーの鍵を完全に削除する
+        # ログアウト時にクッキーを削除
         controller.remove("sb_access_token")
         controller.remove("sb_refresh_token")
         
         st.session_state.user = None
-        # ログアウト時はクッキー削除の指示が伝わるまで少しだけ待ってから再描画する
+        
+        # 削除指示がブラウザに届くまで0.5秒待ってからリロード
         time.sleep(0.5)
         st.rerun()
 
@@ -394,8 +393,8 @@ with tab1:
                     st.subheader(f"店舗 {idx + 1}")
                     s_name = st.text_input("店名", key=f"name_{idx}", placeholder=f"店舗{idx+1}の名前")
                     
-                    s_price = st.number_input("価格(円)", min_value=0, placeholder="例: 498", step=10, key=f"price_{idx}")
-                    s_amount = st.number_input("内容量", min_value=0, placeholder="例: 400", step=10, key=f"amount_{idx}")
+                    s_price = st.number_input("価格(円)", min_value=0, value=None, placeholder="例: 498", step=10, key=f"price_{idx}")
+                    s_amount = st.number_input("内容量", min_value=0, value=None, placeholder="例: 400", step=10, key=f"amount_{idx}")
                     
                     if s_amount is not None and s_price is not None and s_amount > 0 and s_price > 0:
                         valid_stores.append({
@@ -596,6 +595,19 @@ with tab3:
         st.metric(label="計算結果", value=f"{int(final_price):,} 円")
     else:
         st.caption("元値と割引額を入力すると計算結果が表示されます")
+
+# ==========================================
+# 💰 収益化（マネタイズ）エリア（※現在コメントアウト中）
+# ==========================================
+# st.markdown("<br><br>", unsafe_allow_html=True)
+# with st.expander("🌟 お得なネット通販情報＆開発者支援", expanded=False):
+#     st.markdown("日用品のまとめ買いはこちらから！")
+#     st.markdown("🛒 [Amazon タイムセール会場](https://amzn.to/XXXXXX)")
+#     st.markdown("🛍️ [楽天市場 24時間限定タイムセール](https://a.r10.to/XXXXXX)")
+#     
+#     st.markdown("---")
+#     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
+#     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
 
 if st.session_state.get("history_changed", False):
     save_to_cloud(st.session_state.history_list)
