@@ -1,10 +1,10 @@
-import streamlit as st  # Streamlitライブラリをインポート（Web画面を構築するため）
-import pandas as pd  # Pandasライブラリをインポート（履歴データを表形式で管理・表示するため）
-import uuid  # UUIDライブラリをインポート（データの一意なIDを自動生成するため）
-import time  # 時間待機ライブラリ（クッキー通信のラグを吸収するために使用）
-from datetime import datetime  # 日時ライブラリをインポート（履歴の登録日時を取得するため）
-from supabase import create_client, Client  # Supabase接続用の関数と型定義をインポート
-from streamlit_cookies_controller import CookieController  # クッキー操作用ライブラリ
+import streamlit as st
+import pandas as pd
+import uuid
+import time
+from datetime import datetime
+from supabase import create_client, Client
+from streamlit_cookies_controller import CookieController
 
 # --- ページ設定 ---
 st.set_page_config(page_title="価格比較ツール", layout="centered")
@@ -12,24 +12,18 @@ st.set_page_config(page_title="価格比較ツール", layout="centered")
 # ==========================================
 # 🍪 クッキーコントローラーの初期化と自動ログインロジック
 # ==========================================
-controller = CookieController()  # ブラウザのクッキーを読み書きするコントローラー
+controller = CookieController()
 
-# 【最強のハック】初回ロード時の「クッキー空振り」を防ぐための0.5秒待機＆リロード処理
-if "init_run" not in st.session_state:
-    st.session_state.init_run = True
-    time.sleep(0.5)  # ブラウザ側のJSが実行され、クッキーがPython側に届くのを待つ
-    st.rerun()       # クッキーが届いた状態で、スクリプトを最初からやり直す！
-
-# 確実にクッキーが読み込める状態になった後で、自動ログインを試みる
-if st.session_state.get("user") is None:
+# 【安全な自動ログイン】通信が繋がっているか確認してからクッキーを取得
+if st.session_state.get("user") is None and controller.ready:
     access_token = controller.get("sb_access_token")
     refresh_token = controller.get("sb_refresh_token")
     
     if access_token and refresh_token:
         try:
-            # クッキーの鍵を使ってセッションを復元（自動ログイン）
-            response = supabase.auth.set_session(access_token, refresh_token) 
-            st.session_state.user = response.user
+            supabase.auth.set_session(access_token, refresh_token)
+            st.session_state.user = supabase.auth.get_user().user
+            st.rerun()
         except Exception:
             pass
 
@@ -102,59 +96,24 @@ with st.sidebar:
     st.markdown("---")
 
 # ==========================================
-# 🎨 デザインカスタマイズ用CSS
+# 🎨 デザイン・PWA設定（前回と同じ）
 # ==========================================
 st.markdown("""
 <style>
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    background-color: transparent;
-}
-.stTabs [data-baseweb="tab"] {
-    background-color: #EDE9DF;
-    border-radius: 8px 8px 0 0;
-    padding: 10px 20px;
-    color: #698474;
-    font-weight: bold;
-}
-.stTabs [aria-selected="true"] {
-    background-color: #698474 !important;
-    color: #FFFFFF !important;
-}
-.stButton>button {
-    border-radius: 8px;
-    border: none;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    transition: all 0.2s ease;
-}
-.stButton>button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
+.stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: transparent; }
+.stTabs [data-baseweb="tab"] { background-color: #EDE9DF; border-radius: 8px 8px 0 0; padding: 10px 20px; color: #698474; font-weight: bold; }
+.stTabs [aria-selected="true"] { background-color: #698474 !important; color: #FFFFFF !important; }
+.stButton>button { border-radius: 8px; border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: all 0.2s ease; }
+.stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 📱 スマホアプリ化（PWA全画面表示）用ハック
-# ==========================================
 st.markdown("""
 <script>
     const head = document.getElementsByTagName('head')[0];
-    
-    const metaApple = document.createElement('meta');
-    metaApple.name = 'apple-mobile-web-app-capable';
-    metaApple.content = 'yes';
-    head.appendChild(metaApple);
-
-    const metaAndroid = document.createElement('meta');
-    metaAndroid.name = 'mobile-web-app-capable';
-    metaAndroid.content = 'yes';
-    head.appendChild(metaAndroid);
-
-    const metaStatus = document.createElement('meta');
-    metaStatus.name = 'apple-mobile-web-app-status-bar-style';
-    metaStatus.content = 'default';
-    head.appendChild(metaStatus);
+    const metaApple = document.createElement('meta'); metaApple.name = 'apple-mobile-web-app-capable'; metaApple.content = 'yes'; head.appendChild(metaApple);
+    const metaAndroid = document.createElement('meta'); metaAndroid.name = 'mobile-web-app-capable'; metaAndroid.content = 'yes'; head.appendChild(metaAndroid);
+    const metaStatus = document.createElement('meta'); metaStatus.name = 'apple-mobile-web-app-status-bar-style'; metaStatus.content = 'default'; head.appendChild(metaStatus);
 </script>
 """, unsafe_allow_html=True)
 
@@ -167,89 +126,47 @@ def init_supabase() -> Client:
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
 
-try:
-    supabase = init_supabase()
-except Exception as e:
-    st.error("Supabaseの接続設定が見つかりません。secrets.tomlを確認してください。")
-    st.stop()
+supabase = init_supabase()
 
 if "user" not in st.session_state:
     st.session_state.user = None
 
 def login_ui():
     st.title("🔒 ログイン")
-    st.markdown("自分専用の価格比較ツールにアクセスするため、ログインしてください。")
-
     with st.form("login_form"):
         email = st.text_input("メールアドレス")
         password = st.text_input("パスワード", type="password")
         submit_login = st.form_submit_button("ログイン", use_container_width=True)
-
     if submit_login:
-        if not email or not password:
-            st.warning("メールアドレスとパスワードを入力してください")
-        else:
-            try:
-                response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                
-                # ログイン成功時、クッキーに「30日間」の寿命を持たせて保存する
-                if response.session:
-                    controller.set("sb_access_token", response.session.access_token, max_age=2592000)
-                    controller.set("sb_refresh_token", response.session.refresh_token, max_age=2592000)
-                
-                st.session_state.user = response.user
-                
-                # 保存指示がブラウザに届くまで0.5秒待機してからリロードし、メイン画面へ移行する
-                time.sleep(0.5)
-                st.rerun()
-                
-            except Exception as e:
-                st.error("ログイン失敗：メールアドレスかパスワードが間違っているか、メール認証が未完了です。")
-
-    st.markdown("<br>", unsafe_allow_html=True)
+        try:
+            response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            if response.session:
+                controller.set("sb_access_token", response.session.access_token, max_age=2592000)
+                controller.set("sb_refresh_token", response.session.refresh_token, max_age=2592000)
+            st.session_state.user = response.user
+            time.sleep(0.5)
+            st.rerun()
+        except Exception:
+            st.error("ログインに失敗しました")
+            
     with st.expander("📝 新規登録の方はこちら"):
         with st.form("signup_form"):
             signup_email = st.text_input("登録するメールアドレス")
-            signup_password = st.text_input("設定するパスワード（6文字以上）", type="password")
-            submit_signup = st.form_submit_button("認証メールを送信して登録", use_container_width=True)
-
+            signup_password = st.text_input("パスワード", type="password")
+            submit_signup = st.form_submit_button("認証メールを送信", use_container_width=True)
         if submit_signup:
-            if not signup_email or not signup_password:
-                st.warning("メールアドレスとパスワードを入力してください")
-            elif len(signup_password) < 6:
-                st.warning("パスワードは6文字以上で入力してください")
-            else:
-                try:
-                    response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
-                    st.success("登録メールを送信しました！届いたメール内のリンクをクリックして認証を完了させてから、上のフォームよりログインしてください。")
-                except Exception as e:
-                    st.error(f"登録に失敗しました。詳細エラー: {e}")
-
-    with st.expander("❓ パスワードを忘れた場合はこちら"):
-        reset_email = st.text_input("登録したメールアドレス", key="reset_email_input")
-        if st.button("パスワード再設定メールを送信", use_container_width=True):
-            if reset_email:
-                try:
-                    supabase.auth.reset_password_email(reset_email)
-                    st.success("再設定用のメールを送信しました。メールの案内に従ってパスワードを変更してください。")
-                except Exception as e:
-                    st.error("メールの送信に失敗しました。アドレスを確認してください。")
-            else:
-                st.warning("メールアドレスを入力してください。")
+            supabase.auth.sign_up({"email": signup_email, "password": signup_password})
+            st.success("認証メールを確認してください")
 
 # ==========================================
-# 🎁 ログイン画面の分離（未ログイン時のみ表示してストップ）
+# ログイン画面の分離（st.empty）
 # ==========================================
-login_placeholder = st.empty()  # 画面を切り替えるための空箱を用意
-
+login_placeholder = st.empty()
 if st.session_state.user is None:
     with login_placeholder.container():
         login_ui()
-    st.stop()  # ログインが完了するまで、ここで処理を完全に止める
-
-# ログインが完了していれば、この行に到達し、ログイン画面の入った箱を消去する
+    st.stop()
 login_placeholder.empty()
-
 # ==========================================
 # 👤 ログイン中のヘッダー
 # ==========================================
