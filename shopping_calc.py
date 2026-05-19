@@ -1,6 +1,7 @@
 import streamlit as st  # Streamlitライブラリをインポート（Web画面を構築するため）
 import pandas as pd  # Pandasライブラリをインポート（履歴データを表形式で管理・表示するため）
 import uuid  # UUIDライブラリをインポート（データの一意なIDを自動生成するため）
+import time  # ★追加：時間待機ライブラリ（クッキーの保存完了を待つために使用）
 from datetime import datetime  # 日時ライブラリをインポート（履歴の登録日時を取得するため）
 from supabase import create_client, Client  # Supabase接続用の関数と型定義をインポート（データベースと認証のため）
 from streamlit_cookies_controller import CookieController  # クッキー操作用ライブラリをインポート（自動ログインを実装するため）
@@ -37,7 +38,7 @@ if st.session_state.get("user") is None and not st.session_state.auth_attempted:
 # ==========================================
 with st.sidebar:  # 左側のサイドバー領域の中に以下の要素を配置する
     st.markdown("### 📋 規約・ポリシー")  # サイドバーにメニューのタイトルを表示
-    st.caption("本サービスをご利用 of 前に必ずご確認ください。")  # 小さな文字で注意書きを表示
+    st.caption("本サービスをご利用の前に必ずご確認ください。")  # 小さな文字で注意書きを表示
     
     with st.sidebar.expander("🛡️ プライバシーポリシー"):  # クリックすると開閉する「プライバシーポリシー」の枠を作成
         st.write("""
@@ -201,11 +202,14 @@ def login_ui():  # ログイン画面を構築するための関数定義
                 response = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = response.user  # 認証成功時、返ってきたユーザー情報を一時メモリに保存
                 
-                # ▼▼▼ 自動ログインのためのクッキー保存処理を追加 ▼▼▼
+                # ▼▼▼ 自動ログインのためのクッキー保存処理と待機ハック ▼▼▼
                 if response.session:  # 正常にセッションが発行されている場合
                     # セッション復元に必要な2つの暗号鍵（トークン）をブラウザのクッキーに保存する
                     controller.set("sb_access_token", response.session.access_token)
                     controller.set("sb_refresh_token", response.session.refresh_token)
+                    
+                    # 【最重要】ブラウザがクッキーを保存し終える前にリロードが走らないよう、1秒間だけプログラムを一時停止して待つ
+                    time.sleep(1)
                 
                 st.rerun()  # 画面を即座に再描画し、ログイン後のメイン画面へ切り替える
             except Exception as e:
@@ -258,9 +262,12 @@ with col_logout:
         supabase.auth.sign_out()  # Supabaseにログアウト（セッション破棄）を要求
         st.session_state.user = None  # 一時メモリのユーザー情報を空にする
         
-        # ▼▼▼ ログアウト時にクッキーの鍵も完全に削除する処理を追加 ▼▼▼
+        # ▼▼▼ ログアウト時にクッキーの鍵も完全に削除する処理と待機ハックを追加 ▼▼▼
         controller.remove("sb_access_token")  # クッキーからアクセストークンを削除
         controller.remove("sb_refresh_token")  # クッキーからリフレッシュトークンを削除
+        
+        # 【最重要】クッキーの削除指示がブラウザに伝わり切るまで1秒待つ
+        time.sleep(1)
         
         st.rerun()  # 画面を再描画してログイン前の画面に戻す
 
@@ -474,8 +481,7 @@ with tab1:
 
                 # 保存するレコードの辞書を作成
                 new_record = {
-                    # ★修正箇所：current_edit_idが実在（上書き）ならそれを使い、空なら確実に新しいUUIDを生成する
-                    "id": current_edit_id if current_edit_id else str(uuid.uuid4()),
+                    "id": current_edit_id if current_edit_id else str(uuid.uuid4()),  # 編集中のIDがあれば引き継ぎ、なければ新規発行
                     "日付": now,
                     "商品名": st.session_state.edit_item_name,
                     "最安店舗": save_name,
