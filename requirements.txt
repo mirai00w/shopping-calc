@@ -2,3 +2,4 @@ streamlit
 pandas
 streamlit-local-storage
 supabase
+streamlit-cookies-controller
