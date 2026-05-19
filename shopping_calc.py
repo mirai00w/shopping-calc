@@ -1,7 +1,6 @@
 import streamlit as st  # Streamlitライブラリをインポート（Web画面を構築するため）
 import pandas as pd  # Pandasライブラリをインポート（履歴データを表形式で管理・表示するため）
 import uuid  # UUIDライブラリをインポート（データの一意なIDを自動生成するため）
-import time  # ★追加：時間待機ライブラリ（クッキーの保存完了を待つために使用）
 from datetime import datetime  # 日時ライブラリをインポート（履歴の登録日時を取得するため）
 from supabase import create_client, Client  # Supabase接続用の関数と型定義をインポート（データベースと認証のため）
 from streamlit_cookies_controller import CookieController  # クッキー操作用ライブラリをインポート（自動ログインを実装するため）
@@ -14,24 +13,20 @@ st.set_page_config(page_title="価格比較ツール", layout="centered")  # ア
 # ==========================================
 controller = CookieController()  # ブラウザのクッキーを読み書きするためのインスタンス（コントローラー）を生成
 
-# アプリ起動時に最初の一度だけクッキーをチェックするための初期設定
-if "auth_attempted" not in st.session_state:  # セッション（一時メモリ）に「自動ログイン試行済みフラグ」がない場合
-    st.session_state.auth_attempted = False  # まだ試していないので初期値としてFalseを設定
-
-# まだログインしておらず、かつ自動ログインをまだ試みていない場合に実行
-if st.session_state.get("user") is None and not st.session_state.auth_attempted:
-    cookies = controller.getAll()  # ブラウザに保存されているすべてのクッキーを辞書型で取得
-    access_token = cookies.get("sb_access_token")  # Supabaseの「アクセストークン（一時的な鍵）」を取り出す
-    refresh_token = cookies.get("sb_refresh_token")  # Supabaseの「リフレッシュトークン（鍵を更新するための鍵）」を取り出す
+# ▼ 1. 自動ログイン処理（フラグを使わない自然な判定） ▼
+if st.session_state.get("user") is None:  # セッションにユーザー情報がない（未ログイン）場合のみ常に実行
+    # ブラウザからクッキーを取得（初回ロード時は空振りするが、コンポーネントの仕様により直後に自動リロードされ取得できる）
+    access_token = controller.get("sb_access_token")
+    refresh_token = controller.get("sb_refresh_token")
     
-    if access_token and refresh_token:  # クッキーに2つの鍵が安全に保存されていた場合
+    if access_token and refresh_token:  # クッキーに2つの鍵が無事に保存されていた場合
         try:
             # 保存されていた鍵をSupabaseに渡して、以前のログインセッションを完全に復元する
             response = supabase.auth.set_session(access_token, refresh_token) 
             st.session_state.user = response.user  # 復元に成功したら、ユーザー情報をセッション状態にセット
+            st.rerun()  # クッキーの「読み込み」成功時はリロードしてOK（メイン画面へ切り替え）
         except Exception:
-            pass  # 鍵が期限切れなどの理由で復元に失敗した場合は、何もしないで通常のログイン画面へ流す
-    st.session_state.auth_attempted = True  # 成功・失敗に関わらず「自動ログインは試行済み」にして無限ループを防止
+            pass  # 鍵が期限切れなどの理由で復元に失敗した場合は、何もしないでそのままログイン画面を表示
 
 # ==========================================
 # 🛡️ 法的規約エリア（サイドバーに格納）
@@ -200,18 +195,19 @@ def login_ui():  # ログイン画面を構築するための関数定義
             try:
                 # 入力されたアドレスとパスワードをSupabaseに送信して認証を行う
                 response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                st.session_state.user = response.user  # 認証成功時、返ってきたユーザー情報を一時メモリに保存
                 
-                # ▼▼▼ 自動ログインのためのクッキー保存処理と待機ハック ▼▼▼
+                # ▼ 2. ログイン成功時のクッキー保存処理（ハックを使わない完全版） ▼
                 if response.session:  # 正常にセッションが発行されている場合
-                    # セッション復元に必要な2つの暗号鍵（トークン）をブラウザのクッキーに保存する
+                    # セッション復元に必要な2つの暗号鍵（トークン）をブラウザのクッキーに保存する指示を出す
                     controller.set("sb_access_token", response.session.access_token)
                     controller.set("sb_refresh_token", response.session.refresh_token)
-                    
-                    # 【最重要】ブラウザがクッキーを保存し終える前にリロードが走らないよう、1秒間だけプログラムを一時停止して待つ
-                    time.sleep(1)
                 
-                st.rerun()  # 画面を即座に再描画し、ログイン後のメイン画面へ切り替える
+                st.session_state.user = response.user  # 認証成功時、返ってきたユーザー情報を一時メモリに保存
+                
+                # 【最重要】ここで st.rerun() を呼ばない！
+                # スクリプトを最後まで完走させることで、上の controller.set() の指示が確実にブラウザへ届き、クッキーが保存される。
+                st.success("ログイン成功！アプリの準備が完了しました。（そのまま下にスクロールしてご利用ください）")
+                
             except Exception as e:
                 st.error("ログイン失敗：メールアドレスかパスワードが間違っているか、メール認証が未完了です。")  # 失敗時のエラーメッセージ
 
@@ -247,9 +243,14 @@ def login_ui():  # ログイン画面を構築するための関数定義
             else:
                 st.warning("メールアドレスを入力してください。")
 
-if st.session_state.user is None:  # まだログインが完了していない（一時メモリもクッキー復元も空の）場合
+# アプリ起動時、またはログアウト状態で実行される
+if st.session_state.user is None:
     login_ui()  # ログイン画面のUIを表示する
-    st.stop()  # これ以降のメイン機能のプログラムは一切実行せずにここで処理を打ち切る
+    
+    # 【最重要】login_ui() の中でログインに成功した場合、user は None ではなくなるため st.stop() はスキップされる。
+    # スキップされると、この下の「メイン機能」が続いて描画され、クッキー保存指示も無事にブラウザへ送信される。
+    if st.session_state.user is None:
+        st.stop()  # 本当に未ログインのままなら、ここで処理を打ち切りメイン画面を隠す。
 
 # ==========================================
 # 👤 ログイン中のヘッダー
@@ -260,16 +261,17 @@ with col_user:
 with col_logout:
     if st.button("ログアウト"):  # 右側の狭い方にログアウトボタンを配置し、押された場合
         supabase.auth.sign_out()  # Supabaseにログアウト（セッション破棄）を要求
+        
+        # ▼ 3. ログアウト時のクッキー削除処理（ハックを使わない完全版） ▼
+        controller.remove("sb_access_token")  # クッキーからアクセストークンを削除する指示
+        controller.remove("sb_refresh_token")  # クッキーからリフレッシュトークンを削除する指示
         st.session_state.user = None  # 一時メモリのユーザー情報を空にする
         
-        # ▼▼▼ ログアウト時にクッキーの鍵も完全に削除する処理と待機ハックを追加 ▼▼▼
-        controller.remove("sb_access_token")  # クッキーからアクセストークンを削除
-        controller.remove("sb_refresh_token")  # クッキーからリフレッシュトークンを削除
+        st.success("ログアウト完了。画面をリロード（再読み込み）してください。")
         
-        # 【最重要】クッキーの削除指示がブラウザに伝わり切るまで1秒待つ
-        time.sleep(1)
-        
-        st.rerun()  # 画面を再描画してログイン前の画面に戻す
+        # 【最重要】ここで処理を強制停止する。
+        # st.rerun() を呼ぶと削除指示がリセットされてしまうが、st.stop() なら「ここまでの指示」がブラウザに即時送信される！
+        st.stop()
 
 # ==========================================
 # ☁️ クラウド連携用関数
