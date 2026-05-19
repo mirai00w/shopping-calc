@@ -246,7 +246,6 @@ def save_to_cloud(history_list):
 # ==========================================
 # メイン機能
 # ==========================================
-# ▼▼▼ 追加：状態管理変数の初期化 ▼▼▼
 if "editing_record_id" not in st.session_state:
     st.session_state.editing_record_id = None
 
@@ -299,7 +298,7 @@ def clear_all_inputs():
         st.session_state[f"price_{idx}"] = None
         st.session_state[f"amount_{idx}"] = None
 
-# ▼▼▼ 追加：描画前にクリアフラグをチェックしてリセットを実行 ▼▼▼
+# ▼ 描画前にクリアフラグをチェックしてリセットを実行 ▼
 if st.session_state.get("should_clear"):
     clear_all_inputs()
     st.session_state.should_clear = False
@@ -387,7 +386,9 @@ with tab1:
         compared_str = " vs ".join([s["name"] for s in valid_stores])
         
         if st.session_state.edit_item_name:
-            btn_label = "履歴を上書き保存" if st.session_state.get("editing_record_id") else "履歴に新規保存"
+            # 現在編集中のIDを取得
+            current_edit_id = st.session_state.get("editing_record_id")
+            btn_label = "履歴を上書き保存" if current_edit_id else "履歴に新規保存"
             
             if st.button(btn_label):
                 now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -402,8 +403,9 @@ with tab1:
                         "amount": a if a is not None else 0
                     })
 
+                # ▼ 修正：IDがNoneの場合は必ず新しいUUIDを発行する ▼
                 new_record = {
-                    "id": st.session_state.get("editing_record_id", str(uuid.uuid4())),
+                    "id": current_edit_id if current_edit_id else str(uuid.uuid4()),
                     "日付": now,
                     "商品名": st.session_state.edit_item_name,
                     "最安店舗": save_name,
@@ -414,9 +416,9 @@ with tab1:
                     "raw_stores": store_data_to_save
                 }
                 
-                if st.session_state.get("editing_record_id"):
+                if current_edit_id:
                     for i, record in enumerate(st.session_state.history_list):
-                        if record["id"] == st.session_state.editing_record_id:
+                        if record["id"] == current_edit_id:
                             st.session_state.history_list[i] = new_record
                             break
                     st.toast("上書き保存しました！", icon="🔄")
@@ -426,7 +428,7 @@ with tab1:
                     
                 st.session_state.history_changed = True
                 
-                # ▼▼▼ 修正：保存ボタン押下後はクリア予約フラグを立ててリロード ▼▼▼
+                # 保存ボタン押下後はクリア予約フラグを立ててリロード
                 st.session_state.should_clear = True
                 st.rerun()
                 
