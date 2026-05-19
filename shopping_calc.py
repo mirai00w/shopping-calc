@@ -6,6 +6,7 @@ from supabase import create_client, Client
 
 # --- ページ設定 ---
 st.set_page_config(page_title="価格比較ツール", layout="centered")
+
 # ==========================================
 # 🛡️ 法的規約エリア（サイドバーに格納）
 # ==========================================
@@ -73,6 +74,7 @@ with st.sidebar:
         連絡先: shopping.calc.support@gmail.com
         """)
     st.markdown("---")
+
 # ==========================================
 # 🎨 デザインカスタマイズ用CSS
 # ==========================================
@@ -244,6 +246,9 @@ def save_to_cloud(history_list):
 # ==========================================
 # メイン機能
 # ==========================================
+if "editing_record_id" not in st.session_state:
+    st.session_state.editing_record_id = None
+
 if "store_count" not in st.session_state:
     st.session_state.store_count = 2
 
@@ -266,6 +271,7 @@ if "history_loaded" not in st.session_state:
     st.session_state.history_loaded = True
 
 def load_target_to_compare(target):
+    st.session_state.editing_record_id = target.get("id")
     st.session_state.edit_item_name = target.get("商品名", "")
     saved_stores = target.get("raw_stores", [])
     st.session_state.store_count = max(2, len(saved_stores))
@@ -282,6 +288,7 @@ def load_target_to_compare(target):
             st.session_state[f"amount_{idx}"] = s_data.get("amount", None)
 
 def clear_all_inputs():
+    st.session_state.editing_record_id = None
     st.session_state.edit_item_name = ""
     for idx in range(10):
         st.session_state[f"name_{idx}"] = ""
@@ -326,8 +333,8 @@ with tab1:
                     st.subheader(f"店舗 {idx + 1}")
                     s_name = st.text_input("店名", key=f"name_{idx}", placeholder=f"店舗{idx+1}の名前")
                     
-                    s_price = st.number_input("価格(円)", min_value=0, value=None, placeholder="例: 498", step=10, key=f"price_{idx}")
-                    s_amount = st.number_input("内容量", min_value=0, value=None, placeholder="例: 400", step=10, key=f"amount_{idx}")
+                    s_price = st.number_input("価格(円)", min_value=0, placeholder="例: 498", step=10, key=f"price_{idx}")
+                    s_amount = st.number_input("内容量", min_value=0, placeholder="例: 400", step=10, key=f"amount_{idx}")
                     
                     if s_amount is not None and s_price is not None and s_amount > 0 and s_price > 0:
                         valid_stores.append({
@@ -371,7 +378,9 @@ with tab1:
         compared_str = " vs ".join([s["name"] for s in valid_stores])
         
         if st.session_state.edit_item_name:
-            if st.button("履歴に保存"):
+            btn_label = "履歴を上書き保存" if st.session_state.get("editing_record_id") else "履歴に新規保存"
+            
+            if st.button(btn_label):
                 now = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
                 store_data_to_save = []
@@ -385,7 +394,7 @@ with tab1:
                     })
 
                 new_record = {
-                    "id": str(uuid.uuid4()),
+                    "id": st.session_state.get("editing_record_id", str(uuid.uuid4())),
                     "日付": now,
                     "商品名": st.session_state.edit_item_name,
                     "最安店舗": save_name,
@@ -395,9 +404,19 @@ with tab1:
                     "比較対象": compared_str,
                     "raw_stores": store_data_to_save
                 }
-                st.session_state.history_list.insert(0, new_record)
+                
+                if st.session_state.get("editing_record_id"):
+                    for i, record in enumerate(st.session_state.history_list):
+                        if record["id"] == st.session_state.editing_record_id:
+                            st.session_state.history_list[i] = new_record
+                            break
+                    st.toast("上書き保存しました！", icon="🔄")
+                    st.session_state.editing_record_id = None
+                else:
+                    st.session_state.history_list.insert(0, new_record)
+                    st.toast("保存しました！", icon="💾")
+                    
                 st.session_state.history_changed = True
-                st.toast("保存しました！", icon="💾")
     elif len(valid_stores) == 1:
         st.warning("比較するため、もう1店舗入力してください")
 
@@ -516,15 +535,19 @@ with tab3:
 # ==========================================
 # 💰 収益化（マネタイズ）エリア（※現在コメントアウト中）
 # ==========================================
-# st.markdown("<br><br>", unsafe_allow_html=True)
-# with st.expander("🌟 お得なネット通販情報＆開発者支援", expanded=False):
-#     st.markdown("日用品のまとめ買いはこちらから！")
-#     st.markdown("🛒 [Amazon タイムセール会場](https://amzn.to/XXXXXX)")
-#     st.markdown("🛍️ [楽天市場 24時間限定タイムセール](https://a.r10.to/XXXXXX)")
-#     
-#     st.markdown("---")
-#     st.markdown("☕ 開発者を応援する（Buy Me a Coffee）")
-#     st.markdown("[アプリが役立ったらコーヒーを奢る](https://www.buymeacoffee.com/yourname)")
+# st.markdown("<br>", unsafe_allow_html=True)
+# st.caption("スポンサーリンク")
+# st.markdown("""
+# <div style="display: flex; gap: 10px; flex-direction: column;">
+#     <a href="https://www.amazon.co.jp/" target="_blank" style="background-color: #232F3E; color: white; padding: 15px; border-radius: 8px; text-align: center; text-decoration: none; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+#         🛒 Amazon タイムセール会場をチェック
+#     </a>
+#     <a href="https://www.rakuten.co.jp/" target="_blank" style="background-color: #BF0000; color: white; padding: 15px; border-radius: 8px; text-align: center; text-decoration: none; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+#         🛍️ 楽天市場 24時間限定セールをチェック
+#     </a>
+# </div>
+# """, unsafe_allow_html=True)
+# st.markdown("<br>", unsafe_allow_html=True)
 
 if st.session_state.get("history_changed", False):
     save_to_cloud(st.session_state.history_list)
