@@ -17,7 +17,7 @@ with st.sidebar:
     with st.sidebar.expander("🛡️ プライバシーポリシー"):
         st.write("""
         1. 個人情報の取得
-        当サービス（以下、「本サービス」といいます）は、ユーザーがアカウント登録を行う際に、メールアドレスおよびパスワードを取得します。また、本サービスの利用に伴い, 入力された商品名、価格、店舗名、およびそれらに付随する比較・履歴データ（以下、「ユーザーデータ」といいます）を自動的に取得し、クラウド上に保存します。
+        当サービス（以下、「本サービス」といいます）は、ユーザーがアカウント登録を行う際に、メールアドレスおよびパスワードを取得します。また、本サービスの利用に伴い、入力された商品名、価格、店舗名、およびそれらに付随する比較・履歴データ（以下、「ユーザーデータ」といいます）を自動的に取得し、クラウド上に保存します。
 
         2. 利用目的
         取得した個人情報およびユーザーデータは、以下の目的の範囲内でのみ利用します。
@@ -36,7 +36,7 @@ with st.sidebar:
         ユーザーがアカウントおよび保存された履歴データの完全な削除を希望する場合、本サービスのお問い合わせ窓口（shopping.calc.support@gmail.com）までご連絡いただくものとします。申請を受理後、合理的な期間内に、認証情報および関連するすべてのユーザーデータをデータベースから完全に抹消します。
 
         6. ポリシーの変更
-        本サービスは、法令の改正や運営方針 of 変更に伴い、本ポリシーを事前の予告なく改定することがあります。改定後のポリシーは、本サービス上に掲載した時点から効力を生じるものとします。
+        本サービスは、法令の改正や運営方針の変更に伴い、本ポリシーを事前の予告なく改定することがあります。改定後のポリシーは、本サービス上に掲載した時点から効力を生じるものとします。
         """)
 
     with st.sidebar.expander("📝 利用規約"):
@@ -246,8 +246,12 @@ def save_to_cloud(history_list):
 # ==========================================
 # メイン機能
 # ==========================================
+# ▼▼▼ 追加：状態管理変数の初期化 ▼▼▼
 if "editing_record_id" not in st.session_state:
     st.session_state.editing_record_id = None
+
+if "should_clear" not in st.session_state:
+    st.session_state.should_clear = False
 
 if "store_count" not in st.session_state:
     st.session_state.store_count = 2
@@ -294,6 +298,11 @@ def clear_all_inputs():
         st.session_state[f"name_{idx}"] = ""
         st.session_state[f"price_{idx}"] = None
         st.session_state[f"amount_{idx}"] = None
+
+# ▼▼▼ 追加：描画前にクリアフラグをチェックしてリセットを実行 ▼▼▼
+if st.session_state.get("should_clear"):
+    clear_all_inputs()
+    st.session_state.should_clear = False
 
 st.title("価格比較ツール")
 
@@ -411,15 +420,14 @@ with tab1:
                             st.session_state.history_list[i] = new_record
                             break
                     st.toast("上書き保存しました！", icon="🔄")
-                    st.session_state.editing_record_id = None
                 else:
                     st.session_state.history_list.insert(0, new_record)
                     st.toast("保存しました！", icon="💾")
                     
                 st.session_state.history_changed = True
                 
-                # 保存・上書き完了時にフォームをお掃除して画面をリフレッシュ
-                clear_all_inputs()
+                # ▼▼▼ 修正：保存ボタン押下後はクリア予約フラグを立ててリロード ▼▼▼
+                st.session_state.should_clear = True
                 st.rerun()
                 
     elif len(valid_stores) == 1:
